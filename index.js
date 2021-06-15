@@ -541,6 +541,73 @@ app.post("/api/deleteMaintenance", passport.authenticate("jwt", { session: false
     ], function ( error, results ) { });
   }
 });
+
+app.post("/api/confirmMaintenance", passport.authenticate("jwt", { session: false }), (req, res) => {
+  if(!req.user){
+    res.json(false)
+  } else {
+    let checked_user_id = null;
+    let maintenance;
+    
+    async.series( [
+      // Get the first table contents
+      function ( callback ) {
+        const sqlSelect = "SELECT user_id FROM vehicle WHERE id = (SELECT vehicle_id FROM next_maintenance WHERE id = ?);"
+        const filter = [req.header('nextMaintenanceId')];
+        db.query(sqlSelect, filter, (err, result) => {
+          console.log(result[0]);
+          checked_user_id=result[0].user_id;
+          console.log(err);
+          callback();
+        });
+      },
+      function ( callback ) {
+        if(checked_user_id==req.user.id){
+          const sqlSelect = "SELECT * FROM next_maintenance WHERE id =?;"
+          const filter = [req.header('nextMaintenanceId')];
+          db.query(sqlSelect, filter, (err, result) => {
+            maintenance=result[0];
+            console.log(err);
+            callback();
+          });
+        }
+      },
+      // Get the second table contents
+      function ( callback ) {
+        if(checked_user_id==req.user.id){
+          const nextMaintenanceDate = new Date(req.body.done_date);
+          nextMaintenanceDate.setMonth(nextMaintenanceDate.getMonth()+maintenance.time_interval);
+          const nextMaintenanceMileage = parseInt(req.body.done_mileage) + parseInt(maintenance.mileage_interval);
+          
+
+          const sqlUpdate = "UPDATE next_maintenance SET date=DATE(?), mileage=? WHERE id=? ;"
+          const values = [ nextMaintenanceDate, nextMaintenanceMileage, req.header('nextMaintenanceId')];
+          db.query(sqlUpdate, values,  (err, result) => {
+            console.log(err);
+            callback();
+          })
+        }
+      },
+      function ( callback ) {
+        if(checked_user_id==req.user.id){
+          const sqlInsert = "INSERT INTO maintenance (vehicle_id, name, date, mileage, description) VALUES(?, ?, DATE(?), ?, ?);"
+          const values = [maintenance.vehicle_id, maintenance.name, req.body.done_date, req.body.done_mileage, maintenance.description];
+          db.query(sqlInsert, values,  (err, result) => {
+            callback();
+          })
+        }
+      }
+      
+  // Send the response
+    ], function ( error, results ) { 
+      if(!error){
+        res.status(200).send({message: 'Next maintenance confirmed'});
+      }else{
+        console.log(error)
+        res.status(401).send('Next maintenance not confirmed');
+      }});
+  }
+});
 /*
 app.get('/', (req, res) =>{
   const sqlInsert = "insert into user (name, email, password) values('node express2', 'nodeexpress2@gmail.com', 'password2');"
