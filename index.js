@@ -134,6 +134,19 @@ app.get("/api/getVehicles", passport.authenticate("jwt", { session: false }), (r
   }
 })
 
+app.get("/api/getVehicle", passport.authenticate("jwt", { session: false }), (req, res) => {
+  //console.log(req.header('selectedVehicleId'));
+  if(!req.user){
+    res.json(false)
+  } else {
+    const sqlSelect = "SELECT * FROM vehicle WHERE user_id = ? AND id = ?;"
+    const filter = [req.user.id, req.header('selectedVehicleId')];
+    db.query(sqlSelect, filter, (err, result) => {
+      res.json(result);
+    })
+  }
+})
+
 app.get("/api/getServices", passport.authenticate("jwt", { session: false }), (req, res) => {
   if(!req.user){
     res.json(false)
@@ -166,21 +179,77 @@ app.get("/api/getServices", passport.authenticate("jwt", { session: false }), (r
         res.json(services);
     });
   }
-})
+});
 
 
-app.get("/api/getVehicle", passport.authenticate("jwt", { session: false }), (req, res) => {
-  //console.log(req.header('selectedVehicleId'));
+app.get("/api/getMaintenances", passport.authenticate("jwt", { session: false }), (req, res) => {
   if(!req.user){
     res.json(false)
   } else {
-    const sqlSelect = "SELECT * FROM vehicle WHERE user_id = ? AND id = ?;"
-    const filter = [req.user.id, req.header('selectedVehicleId')];
-    db.query(sqlSelect, filter, (err, result) => {
-      res.json(result);
-    })
+    let checked_user_id = null;
+    let maintenances;
+    async.series( [
+      // Get the first table contents
+      function ( callback ) {
+        const sqlSelect = "SELECT user_id FROM vehicle WHERE id = ?;"
+        const filter = [req.header('selectedVehicleId')];
+        db.query(sqlSelect, filter, (err, result) => {
+          checked_user_id=result[0].user_id;
+          callback();
+        });
+      },
+      // Get the second table contents
+      function ( callback ) {
+        if(checked_user_id==req.user.id){
+          const sqlSelect = "SELECT id, name, date, mileage, description FROM maintenance WHERE vehicle_id = ? ORDER BY date DESC;"
+          const filter = [req.header('selectedVehicleId')];
+          db.query(sqlSelect, filter, (err, result) => {
+            maintenances = result;
+            callback();
+          });
+        }
+      }
+  // Send the response
+    ], function ( error, results ) {
+        res.json(maintenances);
+    });
   }
-})
+});
+
+app.get("/api/getNextMaintenances", passport.authenticate("jwt", { session: false }), (req, res) => {
+  if(!req.user){
+    res.json(false)
+  } else {
+    let checked_user_id = null;
+    let nextMaintenances;
+    async.series( [
+      // Get the first table contents
+      function ( callback ) {
+        const sqlSelect = "SELECT user_id FROM vehicle WHERE id = ?;"
+        const filter = [req.header('selectedVehicleId')];
+        db.query(sqlSelect, filter, (err, result) => {
+          checked_user_id=result[0].user_id;
+          callback();
+        });
+      },
+      // Get the second table contents
+      function ( callback ) {
+        if(checked_user_id==req.user.id){
+          const sqlSelect = "SELECT id, name, date, mileage, time_interval, mileage_interval, description FROM next_maintenance WHERE vehicle_id = ? ORDER BY date DESC;"
+          const filter = [req.header('selectedVehicleId')];
+          db.query(sqlSelect, filter, (err, result) => {
+            nextMaintenances = result;
+            callback();
+          });
+        }
+      }
+  // Send the response
+    ], function ( error, results ) {
+        res.json(nextMaintenances);
+    });
+  }
+});
+
 
 app.get("/api/getUsername", passport.authenticate("jwt", { session: false }), (req, res) => {
   if(!req.user){
@@ -192,7 +261,7 @@ app.get("/api/getUsername", passport.authenticate("jwt", { session: false }), (r
       res.json(result);
     })
   }
-})
+});
 
 
 
@@ -203,33 +272,15 @@ app.post("/api/signUp", (req, res) => {
   const nam = req.body.name;
   console.log(nam)
   db.query(sqlInsert, values,  (err, result) => {
-    //res.send(err);
-    //res.send(result)
     if(!err){
       res.status(200).send({message: 'user created'});
     }else{
       res.status(401).send('user not created');
     }
-    //console.log(res)
-    //console.log(err)
   })
-/*
-  passport.authenticate("local", (err, user) => {
-    if(err){
-      return next(err)
-    }
-    if(!user){
-      return res.send("Wrong email or password")
-    }
-    req.login(user, () => {
-      const body = {id: user.id, email: user.email}
-      const token = jwt.sign({user: body}, "jwt_secret", { expiresIn: '20m' })
-      return res.json({token})
-    })
-  })(req, res, next)*/
 })
 
-app.post("/api/AddVehicle", passport.authenticate("jwt", { session: false }), (req, res) => {
+app.post("/api/addVehicle", passport.authenticate("jwt", { session: false }), (req, res) => {
   if(!req.user){
     res.json(false)
   } else {
@@ -256,7 +307,31 @@ app.post("/api/AddVehicle", passport.authenticate("jwt", { session: false }), (r
   }
 });
 
-app.post("/api/AddService", passport.authenticate("jwt", { session: false }), (req, res) => {
+app.post("/api/editVehicle", passport.authenticate("jwt", { session: false }), (req, res) => {
+  if(!req.user){
+    res.json(false)
+  } else {
+      let sqlUpdate;
+      let values;
+    if(req.body.production_date != null){
+      sqlUpdate = "UPDATE vehicle SET name=?, mileage=?, brand=?, model=?, production_date=DATE(?), vin=?, color=? WHERE id=? AND user_id=? ;"
+      values = [req.body.name, req.body.mileage, req.body.brand, req.body.model, req.body.production_date, req.body.vin, req.body.color, req.header('vehicleId') , req.user.id];
+    }else{
+      sqlUpdate = "UPDATE vehicle SET name=?, mileage=?, brand=?, model=?, vin=?, color=? WHERE id=? AND user_id=? ;"
+      values = [req.body.name, req.body.mileage, req.body.brand, req.body.model, req.body.vin, req.body.color, req.header('vehicleId') , req.user.id];
+    }
+    db.query(sqlUpdate, values,  (err, result) => {
+      if(!err){
+        res.status(200).send({message: 'Vehicle edited'});
+      }else{
+        console.log(err)
+        res.status(401).send('Vehicle not edited');
+      }
+    })
+  }
+});
+
+app.post("/api/addService", passport.authenticate("jwt", { session: false }), (req, res) => {
   if(!req.user){
     res.json(false)
   } else {
@@ -292,12 +367,11 @@ app.post("/api/AddService", passport.authenticate("jwt", { session: false }), (r
   }
 });
 
-app.post("/api/EditService", passport.authenticate("jwt", { session: false }), (req, res) => {
+app.post("/api/editService", passport.authenticate("jwt", { session: false }), (req, res) => {
   if(!req.user){
     res.json(false)
   } else {
     let checked_user_id = null;
-    let services;
     async.series( [
       // Get the first table contents
       function ( callback ) {
@@ -311,9 +385,9 @@ app.post("/api/EditService", passport.authenticate("jwt", { session: false }), (
       // Get the second table contents
       function ( callback ) {
         if(checked_user_id==req.user.id){
-          const sqlInsert = "UPDATE service SET name=?, date=DATE(?), mileage=?, description=? WHERE id=? ;"
+          const sqlUpdate = "UPDATE service SET name=?, date=DATE(?), mileage=?, description=? WHERE id=? ;"
           const values = [ req.body.name, req.body.date, req.body.mileage, req.body.description, req.header('serviceId')];
-          db.query(sqlInsert, values,  (err, result) => {
+          db.query(sqlUpdate, values,  (err, result) => {
             if(!err){
               res.status(200).send({message: 'Service updated'});
             }else{
@@ -328,7 +402,7 @@ app.post("/api/EditService", passport.authenticate("jwt", { session: false }), (
   }
 });
 
-app.post("/api/DeleteService", passport.authenticate("jwt", { session: false }), (req, res) => {
+app.post("/api/deleteService", passport.authenticate("jwt", { session: false }), (req, res) => {
   if(!req.user){
     res.json(false)
   } else {
@@ -354,6 +428,111 @@ app.post("/api/DeleteService", passport.authenticate("jwt", { session: false }),
             }else{
               console.log(err)
               res.status(401).send('Service not deleted');
+            }
+          })
+        }
+      }
+  // Send the response
+    ], function ( error, results ) { });
+  }
+});
+
+app.post("/api/addMaintenance", passport.authenticate("jwt", { session: false }), (req, res) => {
+  if(!req.user){
+    res.json(false)
+  } else {
+    let checked_user_id = null;
+    async.series( [
+      // Get the first table contents
+      function ( callback ) {
+        const sqlSelect = "SELECT user_id FROM vehicle WHERE id = ?;"
+        const filter = [req.header('selectedVehicleId')];
+        db.query(sqlSelect, filter, (err, result) => {
+          checked_user_id=result[0].user_id;
+          callback();
+        });
+      },
+      // Get the second table contents
+      function ( callback ) {
+        if(checked_user_id==req.user.id){
+          const sqlInsert = "INSERT INTO maintenance (vehicle_id, name, date, mileage, description) VALUES(?, ?, DATE(?), ?, ?);"
+          const values = [req.header('selectedVehicleId'), req.body.name, req.body.date, req.body.mileage, req.body.description];
+          db.query(sqlInsert, values,  (err, result) => {
+            if(!err){
+              res.status(200).send({message: 'Maintenance added'});
+            }else{
+              console.log(err)
+              res.status(401).send('Maintenance not added');
+            }
+          })
+        }
+      }
+  // Send the response
+    ], function ( error, results ) { });
+  }
+});
+
+app.post("/api/editMaintenance", passport.authenticate("jwt", { session: false }), (req, res) => {
+  if(!req.user){
+    res.json(false)
+  } else {
+    let checked_user_id = null;
+    async.series( [
+      // Get the first table contents
+      function ( callback ) {
+        const sqlSelect = "SELECT user_id FROM vehicle WHERE id = (SELECT vehicle_id FROM maintenance WHERE id = ?);"
+        const filter = [req.header('maintenanceId')];
+        db.query(sqlSelect, filter, (err, result) => {
+          checked_user_id=result[0].user_id;
+          callback();
+        });
+      },
+      // Get the second table contents
+      function ( callback ) {
+        if(checked_user_id==req.user.id){
+          const sqlUpdate = "UPDATE maintenance SET name=?, date=DATE(?), mileage=?, description=? WHERE id=? ;"
+          const values = [ req.body.name, req.body.date, req.body.mileage, req.body.description, req.header('maintenanceId')];
+          db.query(sqlUpdate, values,  (err, result) => {
+            if(!err){
+              res.status(200).send({message: 'Maintenance updated'});
+            }else{
+              console.log(err)
+              res.status(401).send('Maintenance not updated');
+            }
+          })
+        }
+      }
+  // Send the response
+    ], function ( error, results ) { });
+  }
+});
+
+app.post("/api/deleteMaintenance", passport.authenticate("jwt", { session: false }), (req, res) => {
+  if(!req.user){
+    res.json(false)
+  } else {
+    let checked_user_id = null;
+    async.series( [
+      // Get the first table contents
+      function ( callback ) {
+        const sqlSelect = "SELECT user_id FROM vehicle WHERE id = (SELECT vehicle_id FROM maintenance WHERE id = ?);"
+        const filter = [req.header('maintenanceId')];
+        db.query(sqlSelect, filter, (err, result) => {
+          checked_user_id=result[0].user_id;
+          callback();
+        });
+      },
+      // Get the second table contents
+      function ( callback ) {
+        if(checked_user_id==req.user.id){
+          const sqlDelete = "DELETE FROM maintenance WHERE id=? ;"
+          const values = [req.header('maintenanceId')];
+          db.query(sqlDelete, values,  (err, result) => {
+            if(!err){
+              res.status(200).send({message: 'Maintenance deleted'});
+            }else{
+              console.log(err)
+              res.status(401).send('Maintenance not deleted');
             }
           })
         }
