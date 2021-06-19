@@ -8,8 +8,11 @@ const passport = require("passport")
 const LocalStrategy = require("passport-local")
 const passportJWT = require("passport-jwt")
 const jwt = require("jsonwebtoken")
-var async = require('async');
+const async = require('async');
+const nodemailer = require('nodemailer'); 
 
+const moment = require('moment');  
+const { listenerCount } = require('stream');
 
 const app = express();
 
@@ -235,7 +238,7 @@ app.get("/api/getNextMaintenances", passport.authenticate("jwt", { session: fals
       // Get the second table contents
       function ( callback ) {
         if(checked_user_id==req.user.id){
-          const sqlSelect = "SELECT id, name, date, mileage, time_interval, mileage_interval, description FROM next_maintenance WHERE vehicle_id = ? ORDER BY date DESC;"
+          const sqlSelect = "SELECT id, name, date, mileage, time_interval, mileage_interval, description FROM next_maintenance WHERE vehicle_id = ? ORDER BY date ASC;"
           const filter = [req.header('selectedVehicleId')];
           db.query(sqlSelect, filter, (err, result) => {
             nextMaintenances = result;
@@ -542,6 +545,41 @@ app.post("/api/deleteMaintenance", passport.authenticate("jwt", { session: false
   }
 });
 
+app.post("/api/addNextMaintenance", passport.authenticate("jwt", { session: false }), (req, res) => {
+  if(!req.user){
+    res.json(false)
+  } else {
+    let checked_user_id = null;
+    async.series( [
+      // Get the first table contents
+      function ( callback ) {
+        const sqlSelect = "SELECT user_id FROM vehicle WHERE id = ?;"
+        const filter = [req.header('selectedVehicleId')];
+        db.query(sqlSelect, filter, (err, result) => {
+          checked_user_id=result[0].user_id;
+          callback();
+        });
+      },
+      // Get the second table contents
+      function ( callback ) {
+        if(checked_user_id==req.user.id){
+          const sqlInsert = "INSERT INTO next_maintenance (vehicle_id, name, date, mileage, time_interval, mileage_interval, description) VALUES(?, ?, DATE(?), ?, ?, ?, ?);"
+          const values = [req.header('selectedVehicleId'), req.body.name, req.body.date, req.body.mileage, req.body.time_interval, req.body.mileage_interval, req.body.description];
+          db.query(sqlInsert, values,  (err, result) => {
+            if(!err){
+              res.status(200).send({message: 'Next maintenance added'});
+            }else{
+              console.log(err)
+              res.status(401).send('Next maintenance not added');
+            }
+          })
+        }
+      }
+  // Send the response
+    ], function ( error, results ) { });
+  }
+});
+
 app.post("/api/confirmMaintenance", passport.authenticate("jwt", { session: false }), (req, res) => {
   if(!req.user){
     res.json(false)
@@ -579,8 +617,7 @@ app.post("/api/confirmMaintenance", passport.authenticate("jwt", { session: fals
           nextMaintenanceDate.setMonth(nextMaintenanceDate.getMonth()+maintenance.time_interval);
           const nextMaintenanceMileage = parseInt(req.body.done_mileage) + parseInt(maintenance.mileage_interval);
           
-
-          const sqlUpdate = "UPDATE next_maintenance SET date=DATE(?), mileage=? WHERE id=? ;"
+          const sqlUpdate = "UPDATE next_maintenance SET date=DATE(?), mileage=?, reminder_sent = 0 WHERE id=? ;"
           const values = [ nextMaintenanceDate, nextMaintenanceMileage, req.header('nextMaintenanceId')];
           db.query(sqlUpdate, values,  (err, result) => {
             console.log(err);
@@ -608,6 +645,77 @@ app.post("/api/confirmMaintenance", passport.authenticate("jwt", { session: fals
       }});
   }
 });
+
+
+app.post("/api/editNextMaintenance", passport.authenticate("jwt", { session: false }), (req, res) => {
+  if(!req.user){
+    res.json(false)
+  } else {
+    let checked_user_id = null;
+    async.series( [
+      // Get the first table contents
+      function ( callback ) {
+        const sqlSelect = "SELECT user_id FROM vehicle WHERE id = (SELECT vehicle_id FROM next_maintenance WHERE id = ?);"
+        const filter = [req.header('nextMaintenanceId')];
+        db.query(sqlSelect, filter, (err, result) => {
+          checked_user_id=result[0].user_id;
+          callback();
+        });
+      },
+      // Get the second table contents
+      function ( callback ) {
+        if(checked_user_id==req.user.id){
+          const sqlUpdate = "UPDATE next_maintenance SET name=?, date=DATE(?), mileage=?, time_interval=?, mileage_interval=?, description=?, reminder_sent = 0 WHERE id=? ;"
+          const values = [ req.body.name, req.body.date, req.body.mileage, req.body.time_interval, req.body.mileage_interval, req.body.description, req.header('nextMaintenanceId')];
+          db.query(sqlUpdate, values,  (err, result) => {
+            if(!err){
+              res.status(200).send({message: 'Next maintenance updated'});
+            }else{
+              console.log(err)
+              res.status(401).send('Next maintenance not updated');
+            }
+          })
+        }
+      }
+  // Send the response
+    ], function ( error, results ) { });
+  }
+});
+
+app.post("/api/deleteNextMaintenance", passport.authenticate("jwt", { session: false }), (req, res) => {
+  if(!req.user){
+    res.json(false)
+  } else {
+    let checked_user_id = null;
+    async.series( [
+      // Get the first table contents
+      function ( callback ) {
+        const sqlSelect = "SELECT user_id FROM vehicle WHERE id = (SELECT vehicle_id FROM next_maintenance WHERE id = ?);"
+        const filter = [req.header('nextMaintenanceId')];
+        db.query(sqlSelect, filter, (err, result) => {
+          checked_user_id=result[0].user_id;
+          callback();
+        });
+      },
+      // Get the second table contents
+      function ( callback ) {
+        if(checked_user_id==req.user.id){
+          const sqlDelete = "DELETE FROM next_maintenance WHERE id=? ;"
+          const values = [req.header('nextMaintenanceId')];
+          db.query(sqlDelete, values,  (err, result) => {
+            if(!err){
+              res.status(200).send({message: 'Next maintenance deleted'});
+            }else{
+              console.log(err)
+              res.status(401).send('Next maintenance not deleted');
+            }
+          })
+        }
+      }
+  // Send the response
+    ], function ( error, results ) { });
+  }
+});
 /*
 app.get('/', (req, res) =>{
   const sqlInsert = "insert into user (name, email, password) values('node express2', 'nodeexpress2@gmail.com', 'password2');"
@@ -626,6 +734,157 @@ app.get('/api/get', (req, res) =>{
   })
 })
 */
+
+//EMAIL____________________________________-DZIAŁA------------------------------------------------------------
+
+var transporter = nodemailer.createTransport({
+  service: 'gmail',
+  auth: {
+    user: 'email',
+    pass: 'password'
+  }
+});
+/*
+var mailOptions = {
+  from: 'email',
+  to: user.email,
+  subject: 'Sending Email using Node.js',
+  text: 'That was easy!'
+};
+
+transporter.sendMail(mailOptions, function(error, info){
+  if (error) {
+    console.log(error);
+  } else {
+    console.log('Email sent: ' + info.response);
+  }
+}); 
+*/
+//--------------------- REMINDER EMAILS FOR MAINTENANCES-----------------
+const getNextMaintenances = ()=>{
+  return new Promise((resolve, reject) => {
+    const sqlSelect = "SELECT * FROM next_maintenance;"
+    db.query(sqlSelect, (err, result) => {
+      if (err) reject(err); 
+      resolve(result);
+    })
+  })
+}
+const getVehicle = (vehicleId)=>{
+  return new Promise((resolve, reject) => {
+    const sqlSelect = "SELECT * FROM vehicle WHERE id = ?;"
+    const filter = [vehicleId];
+    db.query(sqlSelect, filter, (err, result) => {
+      if (err) reject(err); 
+      resolve(result[0]);
+    })
+  })
+}
+const getUser = (id)=>{
+  return new Promise((resolve, reject) => {
+    const sqlSelect = "SELECT * FROM user WHERE id = ?;"
+    const filter = [id];
+    db.query(sqlSelect, filter, (err, result) => {
+      if (err) reject(err); 
+      resolve(result[0]);
+    })
+  })
+}
+const setIsSent = (id, reminder_sent)=>{
+  return new Promise((resolve, reject) => {
+    const sqlUpdate = "UPDATE next_maintenance SET reminder_sent = ? WHERE id=? ;"
+    const filter = [reminder_sent, id];
+    db.query(sqlUpdate, filter, (err, result) => {
+      if (err) reject(err); 
+      resolve(true);
+    })
+  })
+}
+
+let timerId = setInterval(async() => {
+  const nextMaintenances = await getNextMaintenances();
+  for(const i in nextMaintenances){
+    if(nextMaintenances[i].reminder_sent==0){
+      const today = new Date();
+      const nextWeek = Date.parse(new Date(today.getFullYear(), today.getMonth(), today.getDate() + 7));
+      
+      if(nextMaintenances[i].date<=nextWeek){
+        const vehicle= await getVehicle(nextMaintenances[i].vehicle_id);
+        const user= await getUser(vehicle.user_id);
+        const daysToMake = nextMaintenances[i].date.getDate() - today.getDate();
+        let mailText;
+        if(daysToMake<0){
+          mailText = `Hello ${user.name}!\n`
+          +`Your car ${vehicle.name} needs maintenance named ${nextMaintenances[i].name}. Your maintenance was scheduled for ${moment(nextMaintenances[i].date).format('DD.MM.YYYY')}`
+          + `,so you should have done it ${0-daysToMake} days ago.\n`
+          + `Mileage of scheduled maintenance: ${nextMaintenances[i].mileage}\n`
+          + `Descpription of maintenance:\n${nextMaintenances[i].description}`;
+        }else{
+          mailText = `Hello ${user.name}!\n`
+          +`Your car ${vehicle.name} needs maintenance named ${nextMaintenances[i].name}. Your maintenance was scheduled for ${moment(nextMaintenances[i].date).format('DD.MM.YYYY')}`
+          + `,so you have ${nextMaintenances[i].date.getDate() - today.getDate()} days to make it.\n`
+          + `Mileage of scheduled maintenance: ${nextMaintenances[i].mileage}\n`
+          + `Descpription of maintenance:\n${nextMaintenances[i].description}`;
+        }
+        console.log(mailText);
+        //console.log("id to: " + nextMaintenances[i].id);
+        //mail
+        var mailOptions = {
+          from: 'email',
+          to: user.email, // user.email
+          subject: `Your car ${vehicle.name} needs maintenance!`,
+          text: mailText
+        };
+        transporter.sendMail(mailOptions, function(error, info){
+          if (error) {
+            console.log(error);
+          } else {
+            console.log('Email sent: ' + info.response);
+            setIsSent(nextMaintenances[i].id, 1);
+          }
+        });
+      }else{
+        const vehicle= await getVehicle(nextMaintenances[i].vehicle_id);
+        if(nextMaintenances[i].mileage<vehicle.mileage+1000){
+          const user= await getUser(vehicle.user_id);
+          let mailText;
+          if(nextMaintenances[i].mileage<vehicle.mileage){
+            mailText = `Hello ${user.name}!\n`
+            +`Your car ${vehicle.name} needs maintenance named ${nextMaintenances[i].name}. Your maintenance was scheduled for ${nextMaintenances[i].mileage} mileage,`
+            + ` and now mileage of your car is ${vehicle.mileage} ,so you should have done it ${0-nextMaintenances[i].mileage-vehicle.mileage} mileage ago.\n`
+            + `Date of scheduled maintenance: ${moment(nextMaintenances[i].date).format('DD.MM.YYYY')}\n`
+            + `Descpription of maintenance:\n${nextMaintenances[i].description}`;
+          }else{
+            mailText = `Hello ${user.name}!\n`
+            +`Your car ${vehicle.name} needs maintenance named ${nextMaintenances[i].name}. Your maintenance was scheduled for ${nextMaintenances[i].mileage} mileage`
+            + ` and now mileage of your car is ${vehicle.mileage} ,so you have ${nextMaintenances[i].mileage-vehicle.mileage} mileage to make it.\n`
+            + `Date of scheduled maintenance: ${moment(nextMaintenances[i].date).format('DD.MM.YYYY')}\n`
+            + `Descpription of maintenance:\n${nextMaintenances[i].description}`;
+          }
+          console.log(mailText);
+          //mail
+          var mailOptions = {
+            from: 'email',
+            to: user.email, // user.email
+            subject: `Your car ${vehicle.name} needs maintenance!`,
+            text: mailText
+          };
+          transporter.sendMail(mailOptions, function(error, info){
+            if (error) {
+              console.log(error);
+            } else {
+              console.log('Email sent: ' + info.response);
+              setIsSent(nextMaintenances[i].id, 1);
+            }
+          });
+        }
+      }
+    }
+    
+  }
+
+}, 6000);
+
 app.listen(3001, () => {
   console.log("running on port 3001");
 })
