@@ -12,11 +12,10 @@ const async = require('async');
 const nodemailer = require('nodemailer'); 
 
 const moment = require('moment');  
-const { listenerCount } = require('stream');
 
 const app = express();
 
-// Create connection
+// Create db connection
 const db = mysql.createPool({
   host: "localhost",
   user: "nodeuser",
@@ -26,8 +25,6 @@ const db = mysql.createPool({
 
 const JWTStrategy = passportJWT.Strategy
 
-//const apiRouter = require('./routes/api');
-
 app.use(passport.initialize());
 app.use(cors());
 app.use(express.json());
@@ -36,13 +33,6 @@ app.use(express.urlencoded({
 }));
 app.use(logger('dev'));
 app.use(cookieParser());
-
-//temporary user before using database
-const user = {
-  id: "1",
-  email: "example@email.com",
-  password: "password"
-}
 
 //Local strategy passport to login
 passport.use(new LocalStrategy({
@@ -54,9 +44,14 @@ passport.use(new LocalStrategy({
   let user ;
   db.query(sqlSelect, filter, (err, result) => {
     user = result[0];
-    if(email === user.email && password === user.password) {
-      return done(null, user)
-    }else {
+    if(user != undefined){
+      if(email === user.email && password === user.password) {
+        return done(null, user)
+      }else {
+        return done(null, false)
+      }
+    }
+    else {
       return done(null, false)
     }
   })
@@ -82,10 +77,7 @@ passport.use(new JWTStrategy({
       })
     }
   })
-
 }));
-
-//app.use(express.urlencoded({ extended: false }));
 
 // error handler
 app.use(function(err, req, res, next) {
@@ -97,7 +89,6 @@ app.use(function(err, req, res, next) {
   res.status(err.status || 500);
   res.send(err.message);
 });
-
 
 app.post("/api/login", (req, res, next) => {
   passport.authenticate("local", (err, user) => {
@@ -133,12 +124,10 @@ app.get("/api/getVehicles", passport.authenticate("jwt", { session: false }), (r
     db.query(sqlSelect, filter, (err, result) => {
       res.json(result);
     })
-    
   }
 })
 
 app.get("/api/getVehicle", passport.authenticate("jwt", { session: false }), (req, res) => {
-  //console.log(req.header('selectedVehicleId'));
   if(!req.user){
     res.json(false)
   } else {
@@ -267,7 +256,6 @@ app.get("/api/getUsername", passport.authenticate("jwt", { session: false }), (r
 });
 
 
-
 app.post("/api/signUp", (req, res) => {
 
   const sqlInsert = "insert into user (name, email, password) values(?, ?, ?);"
@@ -297,15 +285,12 @@ app.post("/api/addVehicle", passport.authenticate("jwt", { session: false }), (r
       values = [req.user.id, req.body.name, req.body.mileage, req.body.brand, req.body.model, req.body.vin, req.body.color];
     }
     db.query(sqlInsert, values,  (err, result) => {
-      //res.send(err);
-      //res.send(result)
       if(!err){
         res.status(200).send({message: 'Vehicle added'});
       }else{
         console.log(err)
         res.status(401).send('Vehicle not added');
       }
-      //console.log(res)
     })
   }
 });
@@ -339,7 +324,6 @@ app.post("/api/addService", passport.authenticate("jwt", { session: false }), (r
     res.json(false)
   } else {
     let checked_user_id = null;
-    let services;
     async.series( [
       // Get the first table contents
       function ( callback ) {
@@ -564,7 +548,8 @@ app.post("/api/addNextMaintenance", passport.authenticate("jwt", { session: fals
       function ( callback ) {
         if(checked_user_id==req.user.id){
           const sqlInsert = "INSERT INTO next_maintenance (vehicle_id, name, date, mileage, time_interval, mileage_interval, description) VALUES(?, ?, DATE(?), ?, ?, ?, ?);"
-          const values = [req.header('selectedVehicleId'), req.body.name, req.body.date, req.body.mileage, req.body.time_interval, req.body.mileage_interval, req.body.description];
+          const values = [req.header('selectedVehicleId'), req.body.name, req.body.date, parseInt(req.body.mileage) || 2147483647, parseInt(req.body.time_interval) || null,
+                            parseInt(req.body.mileage_interval) || null, req.body.description];
           db.query(sqlInsert, values,  (err, result) => {
             if(!err){
               res.status(200).send({message: 'Next maintenance added'});
@@ -666,7 +651,8 @@ app.post("/api/editNextMaintenance", passport.authenticate("jwt", { session: fal
       function ( callback ) {
         if(checked_user_id==req.user.id){
           const sqlUpdate = "UPDATE next_maintenance SET name=?, date=DATE(?), mileage=?, time_interval=?, mileage_interval=?, description=?, reminder_sent = 0 WHERE id=? ;"
-          const values = [ req.body.name, req.body.date, req.body.mileage, req.body.time_interval, req.body.mileage_interval, req.body.description, req.header('nextMaintenanceId')];
+          const values = [req.body.name, req.body.date, parseInt(req.body.mileage) || 2147483647, parseInt(req.body.time_interval) || null, parseInt(req.body.mileage_interval) || null,
+                            req.body.description, req.header('nextMaintenanceId')];
           db.query(sqlUpdate, values,  (err, result) => {
             if(!err){
               res.status(200).send({message: 'Next maintenance updated'});
@@ -716,50 +702,20 @@ app.post("/api/deleteNextMaintenance", passport.authenticate("jwt", { session: f
     ], function ( error, results ) { });
   }
 });
-/*
-app.get('/', (req, res) =>{
-  const sqlInsert = "insert into user (name, email, password) values('node express2', 'nodeexpress2@gmail.com', 'password2');"
-  db.query(sqlInsert, (err, result) => {
-    //res.send(err);
-    res.send("prawdopodobnie dodano")
-  })
-})
-
-
-app.get('/api/get', (req, res) =>{
-  const sqlSelect = "SELECT * FROM user;"
-  db.query(sqlSelect, (err, result) => {
-    //res.send(err);
-    res.send(result);
-  })
-})
-*/
 
 //EMAIL____________________________________-DZIAŁA------------------------------------------------------------
 
+const applicationEmail = 'XXX@gmail.com';
+const applicationEmailPassword = 'XXX';
 var transporter = nodemailer.createTransport({
   service: 'gmail',
   auth: {
-    user: 'email',
-    pass: 'password'
+    user: applicationEmail,
+    pass: applicationEmailPassword
   }
 });
-/*
-var mailOptions = {
-  from: 'email',
-  to: user.email,
-  subject: 'Sending Email using Node.js',
-  text: 'That was easy!'
-};
 
-transporter.sendMail(mailOptions, function(error, info){
-  if (error) {
-    console.log(error);
-  } else {
-    console.log('Email sent: ' + info.response);
-  }
-}); 
-*/
+
 //--------------------- REMINDER EMAILS FOR MAINTENANCES-----------------
 const getNextMaintenances = ()=>{
   return new Promise((resolve, reject) => {
@@ -801,7 +757,7 @@ const setIsSent = (id, reminder_sent)=>{
   })
 }
 
-let timerId = setInterval(async() => {
+let maintenanceReminderTimerId = setInterval(async() => {
   const nextMaintenances = await getNextMaintenances();
   for(const i in nextMaintenances){
     if(nextMaintenances[i].reminder_sent==0){
@@ -826,11 +782,10 @@ let timerId = setInterval(async() => {
           + `Mileage of scheduled maintenance: ${nextMaintenances[i].mileage}\n`
           + `Descpription of maintenance:\n${nextMaintenances[i].description}`;
         }
-        console.log(mailText);
-        //console.log("id to: " + nextMaintenances[i].id);
+        //console.log(mailText);
         //mail
         var mailOptions = {
-          from: 'email',
+          from: applicationEmail,
           to: user.email, // user.email
           subject: `Your car ${vehicle.name} needs maintenance!`,
           text: mailText
@@ -861,10 +816,10 @@ let timerId = setInterval(async() => {
             + `Date of scheduled maintenance: ${moment(nextMaintenances[i].date).format('DD.MM.YYYY')}\n`
             + `Descpription of maintenance:\n${nextMaintenances[i].description}`;
           }
-          console.log(mailText);
+          //console.log(mailText);
           //mail
           var mailOptions = {
-            from: 'email',
+            from: applicationEmail,
             to: user.email, // user.email
             subject: `Your car ${vehicle.name} needs maintenance!`,
             text: mailText
@@ -880,10 +835,60 @@ let timerId = setInterval(async() => {
         }
       }
     }
-    
   }
+}, 86400000); //86400000 -> 24h
 
-}, 6000);
+//--------------------- REMINDER EMAILS FOR MILEAGE UPDATE -----------------
+
+const getUsers = ()=>{
+  return new Promise((resolve, reject) => {
+    const sqlSelect = "SELECT * FROM user ;"
+    db.query(sqlSelect, (err, result) => {
+      if (err) reject(err); 
+      resolve(result);
+    })
+  })
+}
+const getVehicles = (userId)=>{
+  return new Promise((resolve, reject) => {
+    const sqlSelect = "SELECT * FROM vehicle WHERE user_id = ?;"
+    const filter = [userId];
+    db.query(sqlSelect, filter, (err, result) => {
+      if (err) reject(err); 
+      resolve(result);
+    })
+  })
+}
+
+let mileageReminderTimerId = setInterval(async() => {
+  const users = await getUsers();
+
+  users.map(async(user)=>{
+    let mailText = `Hello ${user.name}!\n`
+    + `This email is automatic reminder sent every 2 weeks. Remember to update current mileage of your cars. `
+    + `Below you can check current mileage of your cars in app.\n`;
+
+    const vehicles= await getVehicles(user.id);
+    vehicles.map((vehicle)=>{
+      mailText += `id: ${vehicle.id}, name: ${vehicle.name}, mileage: ${vehicle.mileage}\n`;
+    })
+    //console.log(mailText)
+    //mail
+    var mailOptions = {
+      from: applicationEmail,
+      to: user.email, // user.email
+      subject: `Remember to update current mileage of your cars!`,
+      text: mailText
+    };
+    transporter.sendMail(mailOptions, function(error, info){
+      if (error) {
+        console.log(error);
+      } else {
+        console.log('Email sent: ' + info.response);
+      }
+    });
+  })
+}, 1209600000); //1209600000 -> 14 Days
 
 app.listen(3001, () => {
   console.log("running on port 3001");
