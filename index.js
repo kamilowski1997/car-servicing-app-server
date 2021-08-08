@@ -703,7 +703,7 @@ app.post("/api/deleteNextMaintenance", passport.authenticate("jwt", { session: f
   }
 });
 
-//EMAIL____________________________________-DZIAŁA------------------------------------------------------------
+//EMAIL____________________________________
 
 const applicationEmail = 'XXX@gmail.com';
 const applicationEmailPassword = 'XXX';
